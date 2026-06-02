@@ -13,12 +13,11 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-// ─── Slug validation ──────────────────────────────────────────────────────────
+// ─── Validation ───────────────────────────────────────────────────────────────
 const RESERVED = new Set(['api','uploads','static','health','favicon.ico']);
 const SLUG_RE  = /^[a-z0-9][a-z0-9\-_]{0,63}$/i;
 function isValid(slug) { return SLUG_RE.test(slug) && !RESERVED.has(slug.toLowerCase()); }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtBytes(b) {
   if (!b) return '0 B';
   const u = ['B','KB','MB','GB'];
@@ -26,6 +25,37 @@ function fmtBytes(b) {
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(i === 0 ? 0 : 2)} ${u[i]}`;
 }
+
+function fileToJson(f) {
+  return {
+    id:                f.id,
+    filename:          f.filename,
+    filesize:          f.filesize,
+    filesizeFormatted: fmtBytes(f.filesize),
+    uploadedAt:        f.uploaded_at  ? new Date(f.uploaded_at).getTime()  : null,
+    expiresAt:         f.expires_at   ? new Date(f.expires_at).getTime()   : null,
+    downloads:         f.downloads    || 0
+  };
+}
+
+// ─── Cleanup expired files ─────────────────────────────────────────────────────
+async function cleanupExpired() {
+  const { data: expired } = await supabase
+    .from('files')
+    .select('id, space_slug, storage_path')
+    .lt('expires_at', new Date().toISOString());
+
+  if (!expired || expired.length === 0) return;
+
+  const paths = expired.map(f => f.storage_path).filter(Boolean);
+  if (paths.length) await supabase.storage.from(BUCKET).remove(paths);
+  const ids = expired.map(f => f.id);
+  await supabase.from('files').delete().in('id', ids);
+  console.log(`[cleanup] Removed ${expired.length} expired file(s).`);
+}
+
+cleanupExpired();
+setInterval(cleanupExpired, 60 * 60 * 1000);
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(express.json());
@@ -37,35 +67,31 @@ app.get('/api/:slug/info', async (req, res) => {
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
 
   try {
+    // Get or create space
     let { data: space, error } = await supabase
-      .from('spaces').select('*').eq('slug', slug).maybeSingle();
+      .from('spaces').select('slug, created_at').eq('slug', slug).maybeSingle();
     if (error) throw error;
 
-    // Handle expired
-    if (space && space.expires_at && new Date(space.expires_at) < new Date()) {
-      if (space.storage_path) await supabase.storage.from(BUCKET).remove([space.storage_path]);
-      await supabase.from('spaces').delete().eq('slug', slug);
-      space = null;
-    }
-
-    // Auto-create empty space
     if (!space) {
       const { data: created, error: e } = await supabase
-        .from('spaces').insert({ slug }).select().single();
+        .from('spaces').insert({ slug }).select('slug, created_at').single();
       if (e) throw e;
       space = created;
     }
 
+    // Get all files for this space
+    const { data: files, error: fe } = await supabase
+      .from('files')
+      .select('*')
+      .eq('space_slug', slug)
+      .order('uploaded_at', { ascending: false });
+    if (fe) throw fe;
+
     res.json({
-      slug:              space.slug,
-      hasFile:           !!space.filename,
-      filename:          space.filename   || null,
-      filesize:          space.filesize   || null,
-      filesizeFormatted: fmtBytes(space.filesize),
-      uploadedAt:        space.uploaded_at ? new Date(space.uploaded_at).getTime() : null,
-      createdAt:         space.created_at  ? new Date(space.created_at).getTime()  : null,
-      expiresAt:         space.expires_at  ? new Date(space.expires_at).getTime()  : null,
-      downloads:         space.downloads   || 0
+      slug:      space.slug,
+      createdAt: space.created_at ? new Date(space.created_at).getTime() : null,
+      hasFiles:  files.length > 0,
+      files:     files.map(fileToJson)
     });
   } catch (err) {
     console.error('info error:', err.message);
@@ -74,14 +100,11 @@ app.get('/api/:slug/info', async (req, res) => {
 });
 
 // ─── POST /api/:slug/upload-url ───────────────────────────────────────────────
-// Returns a signed URL so the browser can upload directly to Supabase Storage.
-// This bypasses Vercel's 4.5MB body limit entirely.
 app.post('/api/:slug/upload-url', async (req, res) => {
   const { slug } = req.params;
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
 
   const storagePath = `${slug}/${Date.now()}-${uuidv4()}.zip`;
-
   const { data, error } = await supabase.storage
     .from(BUCKET).createSignedUploadUrl(storagePath);
 
@@ -89,13 +112,10 @@ app.post('/api/:slug/upload-url', async (req, res) => {
     console.error('upload-url error:', error.message);
     return res.status(500).json({ error: 'Could not generate upload URL.' });
   }
-
   res.json({ signedUrl: data.signedUrl, storagePath });
 });
 
 // ─── POST /api/:slug/confirm ──────────────────────────────────────────────────
-// Called after the browser finishes the direct Supabase upload.
-// Updates the DB with file metadata.
 app.post('/api/:slug/confirm', async (req, res) => {
   const { slug } = req.params;
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
@@ -103,69 +123,47 @@ app.post('/api/:slug/confirm', async (req, res) => {
   const { filename, filesize, storagePath } = req.body;
   if (!filename || !filesize || !storagePath)
     return res.status(400).json({ error: 'Missing fields.' });
-
-  // Ensure storagePath belongs to this slug (prevents spoofing other spaces)
   if (!storagePath.startsWith(`${slug}/`))
     return res.status(403).json({ error: 'Invalid storage path.' });
 
   try {
-    // Delete old file if one exists
-    const { data: existing } = await supabase
-      .from('spaces').select('storage_path').eq('slug', slug).maybeSingle();
-    if (existing && existing.storage_path && existing.storage_path !== storagePath) {
-      await supabase.storage.from(BUCKET).remove([existing.storage_path]);
-    }
-
-    const now       = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data: updated, error } = await supabase
-      .from('spaces')
-      .update({ filename, filesize, storage_path: storagePath, uploaded_at: now, expires_at: expiresAt, downloads: 0 })
-      .eq('slug', slug)
+    const { data: file, error } = await supabase
+      .from('files')
+      .insert({ space_slug: slug, filename, filesize, storage_path: storagePath, expires_at: expiresAt })
       .select().single();
-
     if (error) throw error;
 
-    res.json({
-      success:           true,
-      filename:          updated.filename,
-      filesize:          updated.filesize,
-      filesizeFormatted: fmtBytes(updated.filesize),
-      uploadedAt:        new Date(updated.uploaded_at).getTime(),
-      expiresAt:         new Date(updated.expires_at).getTime(),
-      downloads:         0
-    });
+    res.json({ success: true, file: fileToJson(file) });
   } catch (err) {
     console.error('confirm error:', err.message);
-    res.status(500).json({ error: 'Failed to confirm upload.' });
+    res.status(500).json({ error: 'Failed to save file.' });
   }
 });
 
-// ─── GET /api/:slug/download ──────────────────────────────────────────────────
-app.get('/api/:slug/download', async (req, res) => {
-  const { slug } = req.params;
+// ─── GET /api/:slug/download/:fileId ─────────────────────────────────────────
+app.get('/api/:slug/download/:fileId', async (req, res) => {
+  const { slug, fileId } = req.params;
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
 
   try {
-    const { data: space, error } = await supabase
-      .from('spaces').select('*').eq('slug', slug).maybeSingle();
+    const { data: file, error } = await supabase
+      .from('files').select('*').eq('id', fileId).eq('space_slug', slug).maybeSingle();
     if (error) throw error;
-    if (!space || !space.storage_path) return res.status(404).json({ error: 'No file found.' });
+    if (!file) return res.status(404).json({ error: 'File not found.' });
 
-    if (space.expires_at && new Date(space.expires_at) < new Date()) {
-      await supabase.storage.from(BUCKET).remove([space.storage_path]);
-      await supabase.from('spaces').delete().eq('slug', slug);
+    if (file.expires_at && new Date(file.expires_at) < new Date()) {
+      await supabase.storage.from(BUCKET).remove([file.storage_path]);
+      await supabase.from('files').delete().eq('id', fileId);
       return res.status(410).json({ error: 'File has expired.' });
     }
 
-    await supabase.from('spaces')
-      .update({ downloads: (space.downloads || 0) + 1 }).eq('slug', slug);
+    await supabase.from('files').update({ downloads: (file.downloads || 0) + 1 }).eq('id', fileId);
 
-    const { data: signed, error: signErr } = await supabase.storage
-      .from(BUCKET).createSignedUrl(space.storage_path, 60, { download: space.filename });
+    const { data: signed, error: se } = await supabase.storage
+      .from(BUCKET).createSignedUrl(file.storage_path, 60, { download: file.filename });
+    if (se) throw se;
 
-    if (signErr) throw signErr;
     res.redirect(signed.signedUrl);
   } catch (err) {
     console.error('download error:', err.message);
@@ -173,19 +171,17 @@ app.get('/api/:slug/download', async (req, res) => {
   }
 });
 
-// ─── DELETE /api/:slug/file ───────────────────────────────────────────────────
-app.delete('/api/:slug/file', async (req, res) => {
-  const { slug } = req.params;
+// ─── DELETE /api/:slug/file/:fileId ──────────────────────────────────────────
+app.delete('/api/:slug/file/:fileId', async (req, res) => {
+  const { slug, fileId } = req.params;
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
 
   try {
-    const { data: space } = await supabase
-      .from('spaces').select('storage_path').eq('slug', slug).maybeSingle();
-    if (space && space.storage_path)
-      await supabase.storage.from(BUCKET).remove([space.storage_path]);
-    await supabase.from('spaces')
-      .update({ filename: null, filesize: null, storage_path: null, uploaded_at: null, expires_at: null, downloads: 0 })
-      .eq('slug', slug);
+    const { data: file } = await supabase
+      .from('files').select('storage_path').eq('id', fileId).eq('space_slug', slug).maybeSingle();
+    if (file && file.storage_path)
+      await supabase.storage.from(BUCKET).remove([file.storage_path]);
+    await supabase.from('files').delete().eq('id', fileId).eq('space_slug', slug);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Delete failed.' });
