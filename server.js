@@ -1,68 +1,20 @@
+require('dotenv').config();
 const express = require('express');
-const multer  = require('multer');
 const path    = require('path');
-const fs      = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const { createClient } = require('@supabase/supabase-js');
 
-const app  = express();
-const PORT = process.env.PORT || 3000;
+const app    = express();
+const PORT   = process.env.PORT || 3000;
+const BUCKET = 'zip-files';
 
-// ─── Directories & DB ─────────────────────────────────────────────────────────
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-const DB_PATH     = path.join(__dirname, 'data.json');
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
 
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-
-// Simple JSON store
-function readDB() {
-  try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); }
-  catch { return {}; }
-}
-function writeDB(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-}
-
-// ─── Expiry Cleanup ───────────────────────────────────────────────────────────
-function cleanupExpired() {
-  const db  = readDB();
-  const now = Date.now();
-  let changed = false;
-  for (const [slug, space] of Object.entries(db)) {
-    if (space.expiresAt && space.expiresAt < now) {
-      if (space.filepath && fs.existsSync(space.filepath)) fs.unlinkSync(space.filepath);
-      delete db[slug];
-      changed = true;
-      console.log(`[cleanup] Expired: ${slug}`);
-    }
-  }
-  if (changed) writeDB(db);
-}
-cleanupExpired();
-setInterval(cleanupExpired, 60 * 60 * 1000);
-
-// ─── Multer ───────────────────────────────────────────────────────────────────
-const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
-  filename:    (req, file, cb) => cb(null, `${Date.now()}-${uuidv4()}.zip`)
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_FILE_SIZE },
-  fileFilter: (req, file, cb) => {
-    const ext  = path.extname(file.originalname).toLowerCase();
-    const mime = file.mimetype;
-    const ok   = ext === '.zip' ||
-      ['application/zip','application/x-zip-compressed','application/x-zip','multipart/x-zip','application/octet-stream']
-        .includes(mime);
-    ok ? cb(null, true) : cb(new Error('INVALID_FILE_TYPE'));
-  }
-});
-
-// ─── Slug Validation ──────────────────────────────────────────────────────────
-const RESERVED = new Set(['api','uploads','static','health','favicon.ico','data.json']);
+// ─── Slug validation ──────────────────────────────────────────────────────────
+const RESERVED = new Set(['api','uploads','static','health','favicon.ico']);
 const SLUG_RE  = /^[a-z0-9][a-z0-9\-_]{0,63}$/i;
 function isValid(slug) { return SLUG_RE.test(slug) && !RESERVED.has(slug.toLowerCase()); }
 
@@ -80,148 +32,177 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── GET /api/:slug/info ──────────────────────────────────────────────────────
-app.get('/api/:slug/info', (req, res) => {
+app.get('/api/:slug/info', async (req, res) => {
   const { slug } = req.params;
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
 
-  const db  = readDB();
-  let space = db[slug];
-  const now = Date.now();
+  try {
+    let { data: space, error } = await supabase
+      .from('spaces').select('*').eq('slug', slug).maybeSingle();
+    if (error) throw error;
 
-  // Handle expired
-  if (space && space.expiresAt && space.expiresAt < now) {
-    if (space.filepath && fs.existsSync(space.filepath)) fs.unlinkSync(space.filepath);
-    delete db[slug];
-    writeDB(db);
-    space = null;
+    // Handle expired
+    if (space && space.expires_at && new Date(space.expires_at) < new Date()) {
+      if (space.storage_path) await supabase.storage.from(BUCKET).remove([space.storage_path]);
+      await supabase.from('spaces').delete().eq('slug', slug);
+      space = null;
+    }
+
+    // Auto-create empty space
+    if (!space) {
+      const { data: created, error: e } = await supabase
+        .from('spaces').insert({ slug }).select().single();
+      if (e) throw e;
+      space = created;
+    }
+
+    res.json({
+      slug:              space.slug,
+      hasFile:           !!space.filename,
+      filename:          space.filename   || null,
+      filesize:          space.filesize   || null,
+      filesizeFormatted: fmtBytes(space.filesize),
+      uploadedAt:        space.uploaded_at ? new Date(space.uploaded_at).getTime() : null,
+      createdAt:         space.created_at  ? new Date(space.created_at).getTime()  : null,
+      expiresAt:         space.expires_at  ? new Date(space.expires_at).getTime()  : null,
+      downloads:         space.downloads   || 0
+    });
+  } catch (err) {
+    console.error('info error:', err.message);
+    res.status(500).json({ error: 'Failed to load space.' });
   }
-
-  // Auto-create space
-  if (!space) {
-    space = { slug, createdAt: now };
-    db[slug] = space;
-    writeDB(db);
-  }
-
-  res.json({
-    slug:             space.slug,
-    hasFile:          !!space.filename,
-    filename:         space.filename    || null,
-    filesize:         space.filesize    || null,
-    filesizeFormatted: fmtBytes(space.filesize),
-    uploadedAt:       space.uploadedAt  || null,
-    createdAt:        space.createdAt,
-    expiresAt:        space.expiresAt   || null,
-    downloads:        space.downloads   || 0
-  });
 });
 
-// ─── POST /api/:slug/upload ───────────────────────────────────────────────────
-app.post('/api/:slug/upload', (req, res) => {
+// ─── POST /api/:slug/upload-url ───────────────────────────────────────────────
+// Returns a signed URL so the browser can upload directly to Supabase Storage.
+// This bypasses Vercel's 4.5MB body limit entirely.
+app.post('/api/:slug/upload-url', async (req, res) => {
   const { slug } = req.params;
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
 
-  upload.single('file')(req, res, (err) => {
-    if (err) {
-      if (err.message === 'INVALID_FILE_TYPE') return res.status(400).json({ error: 'Only ZIP files are accepted.' });
-      if (err.code === 'LIMIT_FILE_SIZE')       return res.status(400).json({ error: `File too large. Maximum is ${fmtBytes(MAX_FILE_SIZE)}.` });
-      return res.status(500).json({ error: 'Upload failed.' });
+  const storagePath = `${slug}/${Date.now()}-${uuidv4()}.zip`;
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET).createSignedUploadUrl(storagePath);
+
+  if (error) {
+    console.error('upload-url error:', error.message);
+    return res.status(500).json({ error: 'Could not generate upload URL.' });
+  }
+
+  res.json({ signedUrl: data.signedUrl, storagePath });
+});
+
+// ─── POST /api/:slug/confirm ──────────────────────────────────────────────────
+// Called after the browser finishes the direct Supabase upload.
+// Updates the DB with file metadata.
+app.post('/api/:slug/confirm', async (req, res) => {
+  const { slug } = req.params;
+  if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
+
+  const { filename, filesize, storagePath } = req.body;
+  if (!filename || !filesize || !storagePath)
+    return res.status(400).json({ error: 'Missing fields.' });
+
+  // Ensure storagePath belongs to this slug (prevents spoofing other spaces)
+  if (!storagePath.startsWith(`${slug}/`))
+    return res.status(403).json({ error: 'Invalid storage path.' });
+
+  try {
+    // Delete old file if one exists
+    const { data: existing } = await supabase
+      .from('spaces').select('storage_path').eq('slug', slug).maybeSingle();
+    if (existing && existing.storage_path && existing.storage_path !== storagePath) {
+      await supabase.storage.from(BUCKET).remove([existing.storage_path]);
     }
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
 
-    // Verify ZIP magic bytes (PK header: 0x50 0x4B)
-    const buf = Buffer.alloc(4);
-    const fd  = fs.openSync(req.file.path, 'r');
-    fs.readSync(fd, buf, 0, 4, 0);
-    fs.closeSync(fd);
-    if (buf[0] !== 0x50 || buf[1] !== 0x4B) {
-      fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: 'File does not appear to be a valid ZIP archive.' });
-    }
+    const now       = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Delete old file
-    const db = readDB();
-    const existing = db[slug];
-    if (existing && existing.filepath && fs.existsSync(existing.filepath)) {
-      fs.unlinkSync(existing.filepath);
-    }
+    const { data: updated, error } = await supabase
+      .from('spaces')
+      .update({ filename, filesize, storage_path: storagePath, uploaded_at: now, expires_at: expiresAt, downloads: 0 })
+      .eq('slug', slug)
+      .select().single();
 
-    const now = Date.now();
-    db[slug] = {
-      slug,
-      filename:  req.file.originalname,
-      filesize:  req.file.size,
-      filepath:  req.file.path,
-      createdAt: existing ? existing.createdAt : now,
-      uploadedAt: now,
-      expiresAt: now + 30 * 24 * 60 * 60 * 1000,
-      downloads: 0
-    };
-    writeDB(db);
+    if (error) throw error;
 
-    const s = db[slug];
     res.json({
-      success: true,
-      filename:          s.filename,
-      filesize:          s.filesize,
-      filesizeFormatted: fmtBytes(s.filesize),
-      uploadedAt:        s.uploadedAt,
-      expiresAt:         s.expiresAt,
+      success:           true,
+      filename:          updated.filename,
+      filesize:          updated.filesize,
+      filesizeFormatted: fmtBytes(updated.filesize),
+      uploadedAt:        new Date(updated.uploaded_at).getTime(),
+      expiresAt:         new Date(updated.expires_at).getTime(),
       downloads:         0
     });
-  });
+  } catch (err) {
+    console.error('confirm error:', err.message);
+    res.status(500).json({ error: 'Failed to confirm upload.' });
+  }
 });
 
 // ─── GET /api/:slug/download ──────────────────────────────────────────────────
-app.get('/api/:slug/download', (req, res) => {
+app.get('/api/:slug/download', async (req, res) => {
   const { slug } = req.params;
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
 
-  const db    = readDB();
-  const space = db[slug];
+  try {
+    const { data: space, error } = await supabase
+      .from('spaces').select('*').eq('slug', slug).maybeSingle();
+    if (error) throw error;
+    if (!space || !space.storage_path) return res.status(404).json({ error: 'No file found.' });
 
-  if (!space || !space.filename) return res.status(404).json({ error: 'No file found.' });
-  if (space.expiresAt && space.expiresAt < Date.now()) {
-    if (space.filepath && fs.existsSync(space.filepath)) fs.unlinkSync(space.filepath);
-    delete db[slug];
-    writeDB(db);
-    return res.status(410).json({ error: 'File has expired.' });
+    if (space.expires_at && new Date(space.expires_at) < new Date()) {
+      await supabase.storage.from(BUCKET).remove([space.storage_path]);
+      await supabase.from('spaces').delete().eq('slug', slug);
+      return res.status(410).json({ error: 'File has expired.' });
+    }
+
+    await supabase.from('spaces')
+      .update({ downloads: (space.downloads || 0) + 1 }).eq('slug', slug);
+
+    const { data: signed, error: signErr } = await supabase.storage
+      .from(BUCKET).createSignedUrl(space.storage_path, 60, { download: space.filename });
+
+    if (signErr) throw signErr;
+    res.redirect(signed.signedUrl);
+  } catch (err) {
+    console.error('download error:', err.message);
+    res.status(500).json({ error: 'Download failed.' });
   }
-  if (!fs.existsSync(space.filepath)) return res.status(404).json({ error: 'File not found on server.' });
-
-  space.downloads = (space.downloads || 0) + 1;
-  writeDB(db);
-
-  res.setHeader('Content-Disposition', `attachment; filename="${space.filename}"`);
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Length', space.filesize);
-  fs.createReadStream(space.filepath).pipe(res);
 });
 
 // ─── DELETE /api/:slug/file ───────────────────────────────────────────────────
-app.delete('/api/:slug/file', (req, res) => {
+app.delete('/api/:slug/file', async (req, res) => {
   const { slug } = req.params;
   if (!isValid(slug)) return res.status(400).json({ error: 'Invalid space name.' });
 
-  const db = readDB();
-  const space = db[slug];
-  if (!space) return res.status(404).json({ error: 'Space not found.' });
-
-  if (space.filepath && fs.existsSync(space.filepath)) fs.unlinkSync(space.filepath);
-
-  db[slug] = { slug, createdAt: space.createdAt };
-  writeDB(db);
-  res.json({ success: true });
+  try {
+    const { data: space } = await supabase
+      .from('spaces').select('storage_path').eq('slug', slug).maybeSingle();
+    if (space && space.storage_path)
+      await supabase.storage.from(BUCKET).remove([space.storage_path]);
+    await supabase.from('spaces')
+      .update({ filename: null, filesize: null, storage_path: null, uploaded_at: null, expires_at: null, downloads: 0 })
+      .eq('slug', slug);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Delete failed.' });
+  }
 });
 
 // ─── Health ───────────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 
-// ─── SPA Fallback ─────────────────────────────────────────────────────────────
+// ─── SPA fallback ─────────────────────────────────────────────────────────────
 app.get('/:slug', (req, res) => {
   if (!isValid(req.params.slug)) return res.redirect('/');
   res.sendFile(path.join(__dirname, 'public', 'space.html'));
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => console.log(`\n🗜️  FilePad → http://localhost:${PORT}\n`));
+// ─── Export for Vercel; listen locally when run directly ─────────────────────
+module.exports = app;
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`\n🗜️  FilePad → http://localhost:${PORT}\n`));
+}
