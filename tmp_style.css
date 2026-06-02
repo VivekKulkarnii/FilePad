@@ -75,6 +75,7 @@ a { color: inherit; text-decoration: none; }
   justify-content: space-between;
   padding: 16px 32px;
   background: rgba(10,10,15,0.7);
+  -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
 }
@@ -741,6 +742,7 @@ a { color: inherit; text-decoration: none; }
   pointer-events: none;
   transition: opacity 0.3s, transform 0.3s;
   z-index: 999;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   white-space: nowrap;
 }
