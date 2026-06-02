@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FilePad – Loading…</title>
+  <meta name="description" content="FilePad file sharing space. Upload or download a ZIP file at this URL." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="space-page">
+
+  <!-- Background Orbs -->
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <a href="/" class="nav-brand" id="navBrand">
+      <div class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <span class="brand-name">FilePad</span>
+    </a>
+    <!-- URL display -->
+    <div class="space-url-display" id="spaceUrlDisplay">
+      <span class="space-url-text" id="spaceUrlText">filepad.com/…</span>
+      <button class="copy-btn-small" id="copyBtnSmall" title="Copy link">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="space-main">
+
+    <!-- Loading State -->
+    <div class="state-panel" id="loadingState">
+      <div class="loading-spinner"></div>
+      <p class="loading-text">Loading space…</p>
+    </div>
+
+    <!-- Error State -->
+    <div class="state-panel hidden" id="errorState">
+      <div class="state-icon error-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+      </div>
+      <h2 class="state-title">Space Unavailable</h2>
+      <p class="state-desc" id="errorMessage">This sharing space is not available.</p>
+      <a href="/" class="btn btn-primary">Go Home</a>
+    </div>
+
+    <!-- Expired State -->
+    <div class="state-panel hidden" id="expiredState">
+      <div class="state-icon expired-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </div>
+      <h2 class="state-title">File Expired</h2>
+      <p class="state-desc">This file has expired and been removed. You can upload a new file to this space.</p>
+      <button class="btn btn-primary" id="expiredUploadBtn">Upload New File</button>
+    </div>
+
+    <!-- Upload State (no file) -->
+    <div class="space-container hidden" id="uploadState">
+      <div class="space-header">
+        <div class="space-slug-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          <span id="slugBadgeUpload"></span>
+        </div>
+        <h1 class="space-title">Drop your ZIP here</h1>
+        <p class="space-subtitle">No file has been uploaded to this space yet. Be the first to share one.</p>
+      </div>
+
+      <!-- Drop Zone -->
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-zone-inner" id="dropZoneInner">
+          <div class="drop-icon" id="dropIcon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <p class="drop-title" id="dropTitle">Drag &amp; drop your ZIP file</p>
+          <p class="drop-subtitle">or click to browse</p>
+          <p class="drop-limit">Maximum file size: 500 MB</p>
+          <input type="file" id="fileInput" accept=".zip,application/zip,application/x-zip-compressed" hidden />
+        </div>
+      </div>
+
+      <!-- Upload Progress -->
+      <div class="upload-progress hidden" id="uploadProgress">
+        <div class="progress-header">
+          <span class="progress-filename" id="progressFilename">uploading.zip</span>
+          <span class="progress-percent" id="progressPercent">0%</span>
+        </div>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+        <p class="progress-status" id="progressStatus">Uploading…</p>
+      </div>
+
+      <!-- Error message under upload -->
+      <div class="upload-error hidden" id="uploadError">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span id="uploadErrorMsg"></span>
+      </div>
+    </div>
+
+    <!-- Download State (has file) -->
+    <div class="space-container hidden" id="downloadState">
+      <div class="space-header">
+        <div class="space-slug-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          <span id="slugBadgeDownload"></span>
+        </div>
+        <h1 class="space-title">File Ready</h1>
+        <p class="space-subtitle">A ZIP file has been uploaded to this space and is ready for download.</p>
+      </div>
+
+      <!-- File Card -->
+      <div class="file-card">
+        <div class="file-card-icon">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+            <polyline points="13 2 13 9 20 9"/>
+            <line x1="9" y1="13" x2="15" y2="13"/>
+            <line x1="9" y1="17" x2="15" y2="17"/>
+          </svg>
+        </div>
+        <div class="file-card-info">
+          <div class="file-name" id="fileName">archive.zip</div>
+          <div class="file-meta">
+            <span class="meta-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+              <span id="fileSize">—</span>
+            </span>
+            <span class="meta-dot">·</span>
+            <span class="meta-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span id="fileUploaded">—</span>
+            </span>
+            <span class="meta-dot">·</span>
+            <span class="meta-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span id="fileDownloads">0 downloads</span>
+            </span>
+          </div>
+          <div class="file-expiry" id="fileExpiry"></div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="action-row">
+        <a class="btn btn-primary btn-large" id="downloadBtn" href="#" download>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download ZIP
+        </a>
+        <button class="btn btn-ghost" id="copyLinkBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          Copy Link
+        </button>
+      </div>
+
+      <!-- Replace section -->
+      <div class="replace-section">
+        <button class="replace-toggle" id="replaceToggle">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="1 4 1 10 7 10"/>
+            <path d="M3.51 15a9 9 0 1 0 .49-3.5"/>
+          </svg>
+          Replace file
+        </button>
+
+        <div class="replace-zone hidden" id="replaceZone">
+          <div class="drop-zone drop-zone-sm" id="replaceDropZone">
+            <div class="drop-zone-inner">
+              <div class="drop-icon drop-icon-sm">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <p class="drop-title drop-title-sm">Drop new ZIP to replace</p>
+              <p class="drop-subtitle">or click to browse</p>
+              <input type="file" id="replaceFileInput" accept=".zip,application/zip,application/x-zip-compressed" hidden />
+            </div>
+          </div>
+          <!-- Replace Progress -->
+          <div class="upload-progress hidden" id="replaceProgress">
+            <div class="progress-header">
+              <span class="progress-filename" id="replaceProgressFilename">uploading.zip</span>
+              <span class="progress-percent" id="replaceProgressPercent">0%</span>
+            </div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="replaceProgressBarFill"></div>
+            </div>
+            <p class="progress-status" id="replaceProgressStatus">Uploading…</p>
+          </div>
+          <div class="upload-error hidden" id="replaceError">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span id="replaceErrorMsg"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Toast -->
+  <div class="toast hidden" id="toast">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    <span id="toastMsg">Copied!</span>
+  </div>
+
+  <script src="/space.js"></script>
+</body>
+</html>
