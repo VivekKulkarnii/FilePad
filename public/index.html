@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FilePad – Instant ZIP File Sharing via URL</title>
+  <title>FilePad</title>
   <meta name="description" content="FilePad lets you instantly share ZIP files through a custom URL. No account, no signup — just create a URL, upload your ZIP, and share the link." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@500;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="home-page">
@@ -20,6 +21,16 @@
   <!-- Navigation -->
   <nav class="navbar" id="navbar">
     <a href="/" class="nav-brand">
+      <svg class="brand-logo" width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="brand-logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#ffffff" />
+            <stop offset="100%" stop-color="#a78bfa" />
+          </linearGradient>
+        </defs>
+        <rect x="5" y="9" width="16" height="18" rx="4" stroke="url(#brand-logo-grad)" stroke-width="2" stroke-opacity="0.4" />
+        <rect x="11" y="5" width="16" height="18" rx="4" fill="url(#brand-logo-grad)" />
+      </svg>
       <span class="brand-name">FilePad</span>
     </a>
     <form class="nav-url-form" id="navUrlForm" autocomplete="off">
