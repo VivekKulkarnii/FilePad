@@ -7,7 +7,7 @@
   <meta name="description" content="FilePad lets you instantly share ZIP files through a custom URL. No account, no signup — just create a URL, upload your ZIP, and share the link." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@500;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="home-page">
@@ -18,18 +18,44 @@
   <div class="bg-orb orb-3"></div>
 
   <!-- Navigation -->
-  <nav class="navbar">
-    <div class="nav-brand">
-      <div class="brand-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-      </div>
+  <nav class="navbar" id="navbar">
+    <a href="/" class="nav-brand">
       <span class="brand-name">FilePad</span>
+    </a>
+    <form class="nav-url-form" id="navUrlForm" autocomplete="off">
+      <div class="nav-url-group">
+        <div class="nav-url-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </div>
+        <span class="nav-url-slash">/</span>
+        <input
+          type="text"
+          id="navSlugInput"
+          class="nav-url-input"
+          placeholder=""
+          maxlength="64"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button type="submit" class="nav-url-btn" id="navGoBtn" title="Go to space">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+            <polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </button>
+      </div>
+    </form>
+    <div class="nav-actions">
+      <div class="nav-badge">Beta</div>
+      <a href="https://github.com/VivekKulkarnii/FilePad" class="github-link" target="_blank" aria-label="GitHub" title="GitHub Repository">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+        </svg>
+      </a>
     </div>
-    <div class="nav-badge">Beta</div>
   </nav>
 
   <!-- Hero -->
@@ -88,7 +114,7 @@
       </button>
 
       <!-- Steps -->
-      <div class="steps">
+      <div class="steps" id="steps">
         <div class="step">
           <div class="step-num">1</div>
           <div class="step-text">Enter a URL name</div>
@@ -107,7 +133,7 @@
     </div>
 
     <!-- Features -->
-    <div class="features">
+    <div class="features" id="features">
       <div class="feature-card">
         <div class="feature-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
