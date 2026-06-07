@@ -163,6 +163,7 @@ async function deleteFile(fileId, itemEl) {
 async function uploadFiles(files, queueEl, errorEl, errorMsgEl) {
   const valid = [];
   const errors = [];
+  let hasErrors = false;
 
   for (const file of files) {
     const ext = file.name.split('.').pop().toLowerCase();
@@ -220,8 +221,8 @@ async function uploadFiles(files, queueEl, errorEl, errorMsgEl) {
       // Upload directly to Supabase
       await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('PUT', d1.signedUrl);
-        xhr.setRequestHeader('Content-Type', 'application/zip');
+
+        // Attach listeners before open() - critical for Safari/WebKit/Mobile
         xhr.upload.addEventListener('progress', e => {
           if (e.lengthComputable) {
             const p = Math.round((e.loaded / e.total) * 100);
@@ -233,6 +234,9 @@ async function uploadFiles(files, queueEl, errorEl, errorMsgEl) {
         xhr.addEventListener('load', () =>
           xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error('Upload failed (status ' + xhr.status + ').')));
         xhr.addEventListener('error', () => reject(new Error('Network error.')));
+
+        xhr.open('PUT', d1.signedUrl);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/zip');
         xhr.send(file);
       });
 
@@ -256,15 +260,34 @@ async function uploadFiles(files, queueEl, errorEl, errorMsgEl) {
     } catch (err) {
       status.textContent = '✗ ' + err.message;
       row.classList.add('queue-item-error');
+      hasErrors = true;
     }
   }
 
-  // Clear queue after a delay
-  setTimeout(() => {
-    queueEl.innerHTML = '';
-    queueEl.classList.add('hidden');
-    uploadMoreZone.classList.add('hidden');
-  }, 2000);
+  // Clear queue after a delay only if there are no errors
+  if (!hasErrors) {
+    setTimeout(() => {
+      queueEl.innerHTML = '';
+      queueEl.classList.add('hidden');
+      uploadMoreZone.classList.add('hidden');
+    }, 2000);
+  } else {
+    // Keep the queue visible for errors and add a Dismiss button
+    if (!queueEl.querySelector('.queue-dismiss')) {
+      const dismissDiv = document.createElement('div');
+      dismissDiv.style.textAlign = 'right';
+      dismissDiv.style.marginTop = '12px';
+      dismissDiv.innerHTML = `
+        <button class="btn btn-ghost btn-sm queue-dismiss" style="font-size: 12px; padding: 6px 12px;">Dismiss</button>
+      `;
+      dismissDiv.querySelector('.queue-dismiss').addEventListener('click', () => {
+        queueEl.innerHTML = '';
+        queueEl.classList.add('hidden');
+        uploadMoreZone.classList.add('hidden');
+      });
+      queueEl.appendChild(dismissDiv);
+    }
+  }
 }
 
 // ─── Setup drop zone ──────────────────────────────────────────────────────────
